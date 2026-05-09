@@ -10,7 +10,7 @@ using Toybox.Lang;
 
 // Text-only micro-graphics watch face.
 // Layout y/x anchors come straight from art/build_layout.py.
-class PokefaceView extends Ui.WatchFace {
+class MinimalView extends Ui.WatchFace {
 
     private var _fontBig;
     private var _fontMed;

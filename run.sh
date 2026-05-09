@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Pokéface watch face and load it in the Connect IQ Simulator.
+# Build the Minimal Watch Face and load it in the Connect IQ Simulator.
 #
 # Usage:
 #   ./run.sh             # build + sideload once
@@ -54,7 +54,7 @@ if [[ ! -f "$KEY" ]]; then
     exit 1
 fi
 
-PRG="bin/Pokeface.prg"
+PRG="bin/Minimal.prg"
 DEVICE="fr265s"
 
 build_and_load() {
@@ -81,7 +81,7 @@ build_and_load() {
         sleep 4
     fi
 
-    pkill -f "monkeydo.*Pokeface" 2>/dev/null || true
+    pkill -f "monkeydo.*Minimal" 2>/dev/null || true
     sleep 1
     echo "→ Sideloading..."
     "$SDK/bin/monkeydo" "$PRG" "$DEVICE" &

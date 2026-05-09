@@ -1,7 +1,7 @@
 using Toybox.Application as App;
 using Toybox.WatchUi as Ui;
 
-class PokefaceApp extends App.AppBase {
+class MinimalApp extends App.AppBase {
 
     function initialize() {
         AppBase.initialize();
@@ -11,7 +11,7 @@ class PokefaceApp extends App.AppBase {
     function onStop(state) {}
 
     function getInitialView() {
-        return [ new PokefaceView() ];
+        return [ new MinimalView() ];
     }
 
     function onSettingsChanged() {
