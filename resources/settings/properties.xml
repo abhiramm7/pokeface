@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<properties>
+    <property id="favoritePokemon" type="string">auto</property>
+    <property id="stepGoal" type="number">10000</property>
+</properties>

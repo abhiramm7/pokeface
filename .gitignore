@@ -1,0 +1,8 @@
+bin/
+*.prg
+*.iq
+*.debug.xml
+*.der
+.DS_Store
+__pycache__/
+art/_sprite_cache/
