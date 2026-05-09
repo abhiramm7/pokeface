@@ -1,19 +1,4 @@
 <?xml version="1.0"?>
 <drawables>
     <bitmap id="LauncherIcon" filename="launcher_icon.png"/>
-
-    <!-- Grass starter line -->
-    <bitmap id="SpriteBulbasaur" filename="sprite_bulbasaur.png"/>
-    <bitmap id="SpriteIvysaur"   filename="sprite_ivysaur.png"/>
-    <bitmap id="SpriteVenusaur"  filename="sprite_venusaur.png"/>
-
-    <!-- Fire starter line -->
-    <bitmap id="SpriteCharmander" filename="sprite_charmander.png"/>
-    <bitmap id="SpriteCharmeleon" filename="sprite_charmeleon.png"/>
-    <bitmap id="SpriteCharizard"  filename="sprite_charizard.png"/>
-
-    <!-- Water starter line -->
-    <bitmap id="SpriteSquirtle"  filename="sprite_squirtle.png"/>
-    <bitmap id="SpriteWartortle" filename="sprite_wartortle.png"/>
-    <bitmap id="SpriteBlastoise" filename="sprite_blastoise.png"/>
 </drawables>

@@ -6,3 +6,4 @@ bin/
 .DS_Store
 __pycache__/
 art/_sprite_cache/
+art/_font_cache/

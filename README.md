@@ -1,111 +1,122 @@
-# Pokéface — Garmin Watch Face
+# Pokeface — a micro-graphics watch face for the Forerunner 265S
 
-A Pokémon-Sleep-inspired watch face for the **Forerunner 265S**. The scene
-reacts to your context:
+A text-only, brutalist-modernist watch face inspired by the
+[micro-graphics aesthetic](https://www.openallhours.co/p/how-micro-graphics-went-from-an-afterthought-to-an-aesthetic):
+small grotesque type, dense data, mathematical placement.
 
-- **Weather** picks the biome and featured Pokémon (sunny meadow + Bulbasaur,
-  rain + Squirtle, snow + Articuno, thunderstorm + Pikachu, hot day + Charmander).
-- **Time of day** tints the palette (dawn / day / dusk / night).
-- **Steps** advance the Pokémon's animation frame across the day (idle → bouncing).
-- **Night** (21:00–05:00) brings out Gengar.
+![watch face](docs/screenshot.png)
 
-Art is original pixel-art placeholders rendered for the FR 265S's 360×360 round
-AMOLED. Replace the PNGs in `resources-round-360x360/drawables/` with your own
-to customize.
+Built around four ideas:
+
+1. **Grotesque typography** — Inter (open-source Akzidenz-Grotesk successor)
+   baked into bitmap fonts at four hand-picked sizes.
+2. **LaTeX-style layout** — every text row is positioned by a Python solver
+   ([`art/build_layout.py`](art/build_layout.py)) that reads real glyph widths
+   from the `.fnt` atlases and verifies each row fits inside the round-display
+   chord at its y. Overflow = compile failure.
+3. **Day / night palette inversion** — white-on-black during daylight,
+   black-on-white after sunset, decided live from
+   `Toybox.Weather.getSunrise/getSunset`.
+4. **Honest data, lowercase** — weather (live), date, time, calories,
+   compact step count, body battery, heart rate, watch battery, sun times.
+
+## Layout
+
+```
+                    cloudy 55f                   ← live weather (header)
+              tue · 09 may 26 · wk19             ← date
+
+                       10:42                      ← time
+
+      342kc        6.4k       73%       72bpm     ← cal · steps · bb · hr
+
+              wb 78% · sun 6:24a 8:42p            ← watch battery + sun
+```
 
 ## One-time setup
 
-1. Install the **Connect IQ SDK** from
-   <https://developer.garmin.com/connect-iq/sdk/> (use the SDK Manager — pick the
-   latest SDK and the `fr265s` device).
+1. Install the **Connect IQ SDK** from <https://developer.garmin.com/connect-iq/sdk/>
+   via SDK Manager. Pick the latest SDK + the `fr265s` device package.
 2. Install the **Monkey C** VS Code extension (`garmin.monkey-c`).
-3. Generate a developer key once:
+3. Java 17 is required by the SDK toolchain. On macOS:
+   `brew install openjdk@17`.
+4. Generate a developer key once:
    ```
-   monkeyc -k path/to/developer_key.der --keygen
+   openssl genrsa -out key.pem 4096
+   openssl pkcs8 -topk8 -inform PEM -outform DER -in key.pem -out developer_key.der -nocrypt
    ```
 
-## Build & test in the simulator
+## Build, test, sideload
+
+The bundled [`run.sh`](run.sh) wraps everything:
 
 ```bash
-cd /Users/pluto/garmin/pokeface
-
-# Java 17 is required by the SDK; put it on PATH.
-export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"
-export SDK="$HOME/Library/Application Support/Garmin/ConnectIQ/Sdks/connectiq-sdk-mac-9.1.0-2026-03-09-6a872a80b"
-
-# 1. (Re)generate the placeholder art if you haven't already.
-uv run --with pillow python art/build_art.py
-
-# 2. Compile.
-"$SDK/bin/monkeyc" \
-    -d fr265s \
-    -f monkey.jungle \
-    -o bin/Pokeface.prg \
-    -y /Users/pluto/garmin/developer_key.der
-
-# 3. Open the simulator + run.
-open "$SDK/bin/ConnectIQ.app"
-"$SDK/bin/monkeydo" bin/Pokeface.prg fr265s
+./run.sh             # build + sideload to simulator once
+./run.sh --watch     # rebuild + reload on every save
+./run.sh --art       # regenerate placeholder art / fonts first
+./run.sh --release   # build release (-r), no debug symbols
+./run.sh --build     # build only, don't launch simulator
 ```
 
-In the simulator, exercise each input:
+Things to exercise in the simulator:
 
-- **Simulation → Time → Custom** — scrub through 06:00, 12:00, 19:00, 23:00 to
-  watch the palette tint and confirm Gengar takes over at night.
-- **Simulation → Weather → Set Conditions** — pick CLEAR, RAIN, SNOW,
-  THUNDERSTORMS to confirm biome + Pokémon swap.
-- **Simulation → Sensors → Activity Monitor** — set steps to 0, 2,500, 5,000,
-  7,500, 10,000 to walk through the 4 sprite frames.
-- **Simulation → Settings → Low-Power Mode** — confirms only the time + outline
-  draw in the always-on state (`onPartialUpdate`).
+- **Settings → Time of Day** — scrub past sunset to flip to the inverse
+  black-on-white night palette.
+- **Settings → Conditions** — change weather to verify the lowercase header
+  re-renders (e.g. `clear 72f`, `rain 51f`, `snow 28f`).
+- **Settings → Sensors → Activity Data** — bump calories / steps and watch
+  the values update.
 
-## Sideload to the watch
+To install on the actual watch: plug it in via USB, allow Mass Storage Mode
+when prompted, then:
 
 ```bash
-# Plug the FR 265S in via USB, mount as "GARMIN".
 cp bin/Pokeface.prg /Volumes/GARMIN/GARMIN/Apps/
 diskutil eject /Volumes/GARMIN
-
-# On the watch: long-press up → Watch Face → Pokéface.
+# Long-press LIGHT on the watch → Watch Face → Pokeface.
 ```
 
 ## Project layout
 
 ```
-pokeface/
-├── manifest.xml                manifest (fr265s, Weather + Sensor permissions)
-├── monkey.jungle               build config
+.
+├── manifest.xml             fr265s + SensorHistory permission
+├── monkey.jungle            build config
+├── run.sh                   build / reload / watch helper
 ├── source/
-│   ├── PokefaceApp.mc          AppBase entrypoint
-│   ├── PokefaceView.mc         WatchFace: onUpdate / onPartialUpdate
-│   ├── SceneEngine.mc          composes {biome, palette, sprite, frame}
-│   ├── WeatherAdapter.mc       Weather.getCurrentConditions() → 6-bucket classifier
-│   └── SpriteAtlas.mc          lazy bitmap loader
-├── resources/                  base layer (strings, settings, drawables.xml)
-├── resources-round-360x360/
-│   └── drawables/              360x360-tuned PNG resources (the actual art)
+│   ├── PokefaceApp.mc       AppBase entrypoint
+│   └── PokefaceView.mc      WatchFace — drawing, day/night, helpers
+├── resources/
+│   ├── strings/strings.xml
+│   ├── settings/properties.xml
+│   ├── drawables/drawables.xml + launcher_icon.png
+│   └── fonts/inter_*.fnt + .png      Inter @ 11/14/22/64 px
 └── art/
-    └── build_art.py            placeholder-art generator (Pillow)
+    ├── build_fonts.py       TTF → Garmin BMFont .fnt + bitmap atlas
+    └── build_layout.py      LaTeX-style solver: chord math + row widths
 ```
 
-## Customizing
+## How the layout solver works
 
-- **Swap a Pokémon's art:** replace
-  `resources-round-360x360/drawables/sprite_<name>.png` (must be a 256×64
-  4-frame horizontal strip — frames 0..3 from idle to bounce).
-- **Change the biome backgrounds:** edit
-  `resources-round-360x360/drawables/biome_*.png` (must be 360×360, ideally
-  pre-clipped to a circle since the FR 265S is round).
-- **Change a weather → Pokémon mapping:** edit `WeatherAdapter.classify()`.
-- **Change palette tint times:** edit the hour bands in
-  `SceneEngine.compose()`.
-- **Pick a favorite Pokémon (override weather):** Garmin Connect IQ →
-  Pokéface → Settings → Favorite Pokémon.
+[`art/build_layout.py`](art/build_layout.py) declares each row as
+`(y, font, alignment, content)` and runs three checks before any build:
+
+1. Reads the per-glyph `xadvance` from the `.fnt` files so widths match what
+   Garmin will actually render.
+2. Computes the available chord at every y on the round display:
+   `2·√(r² − (y − cy)²)`, with a 10 px bezel margin.
+3. For `spread:N` rows, splits the chord into N evenly-spaced columns and
+   verifies the longest item fits its column.
+
+If a row overflows, the solver exits non-zero — push the row up/down,
+shrink the font, or shorten the text. When all rows fit, transcribe the
+emitted y-coordinates into [`PokefaceView.mc`](source/PokefaceView.mc).
 
 ## Notes
 
-- The face fires `onUpdate` once per minute to conserve battery; sub-second
-  animation isn't permitted in the always-on state. Visual motion comes from
-  step progress and minute-to-minute frame changes.
-- Pokémon are Nintendo IP — this is a personal-use, sideloaded face. Do not
-  publish to the Connect IQ Store.
+- `onUpdate` fires roughly once per minute; the face is intentionally
+  static within a minute to keep AMOLED battery drain low.
+- Body battery and heart rate require the `SensorHistory` permission
+  (already declared in [`manifest.xml`](manifest.xml)).
+- The screenshot above is captured directly from the Connect IQ
+  Simulator running on macOS.

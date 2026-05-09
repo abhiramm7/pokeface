@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<fonts>
+    <font id="InterBig"   filename="inter_big.fnt"/>
+    <font id="InterMed"   filename="inter_med.fnt"/>
+    <font id="InterSmall" filename="inter_small.fnt"/>
+    <font id="InterTiny"  filename="inter_tiny.fnt"/>
+</fonts>

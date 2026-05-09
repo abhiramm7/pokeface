@@ -4,79 +4,104 @@ using Toybox.System as Sys;
 using Toybox.Time as Time;
 using Toybox.Time.Gregorian as Cal;
 using Toybox.ActivityMonitor as Act;
-using Toybox.Application as App;
-using Toybox.Math as Math;
+using Toybox.Weather as Weather;
+using Toybox.SensorHistory as SH;
 using Toybox.Lang;
 
+// Text-only micro-graphics watch face.
+// Layout y/x anchors come straight from art/build_layout.py.
 class PokefaceView extends Ui.WatchFace {
 
-    private var _scene;
+    private var _fontBig;
+    private var _fontMed;
+    private var _fontSmall;
+    private var _fontTiny;
     private var _isLowPower = false;
 
     private const SCREEN_W = 360;
+    private const CX = 180;
 
-    private const POKE_CX = 110;
-    private const POKE_CY = 220;
+    // Solver-emitted Y anchors.
+    private const Y_WEATHER = 48;
+    private const Y_DATE    = 74;
+    private const Y_TIME    = 130;
+    private const Y_VALUES  = 218;
+    private const Y_FOOTER  = 290;
 
-    private const PILL_R = 348;
-    private const PILL_W = 130;
-    private const PILL_H = 32;
-    private const TIME_Y = 18;
-    private const DATE_Y = 95;
-    private const PILL_Y0 = 122;
-    private const PILL_DY = 40;
+    // Spread-of-4 column centres at y=218: chord=331, inner=323, step=80.75,
+    // first centre = CX - 161 + 40 ≈ 60.
+    private const COL_X = [60, 140, 220, 300];
 
-    private const COLOR_PILL_BG = 0x222222;
+    // Day mode: white text on black.
+    // Night mode: black text on white (inverse).
+    private const DAY_BG    = 0x000000;
+    private const DAY_TEXT  = 0xFFFFFF;
+    private const DAY_DIM   = 0x808080;
+    private const NIGHT_BG    = 0xFFFFFF;
+    private const NIGHT_TEXT  = 0x000000;
+    private const NIGHT_DIM   = 0x808080;
+
+    private var _bg;
+    private var _text;
+    private var _dim;
 
     function initialize() {
         WatchFace.initialize();
     }
 
     function onLayout(dc) {
-        SpriteAtlas.preload();
+        _fontBig   = Ui.loadResource(Rez.Fonts.InterBig);
+        _fontMed   = Ui.loadResource(Rez.Fonts.InterMed);
+        _fontSmall = Ui.loadResource(Rez.Fonts.InterSmall);
+        _fontTiny  = Ui.loadResource(Rez.Fonts.InterTiny);
     }
 
     function onShow() {}
 
     function onUpdate(dc) {
+        // Pick day/night palette based on whether the sun is up.
+        applyPalette(isDayNow());
+
+        dc.setColor(_bg, _bg);
+        dc.clear();
+
         var clock = Sys.getClockTime();
         var now = Cal.info(Time.now(), Time.FORMAT_MEDIUM);
         var act = Act.getInfo();
+        var stats = Sys.getSystemStats();
 
         var calories = (act != null && act.calories != null) ? act.calories : 0;
-        var calGoal = SceneEngine.CALORIE_GOAL_DEFAULT;
+        var steps    = (act != null && act.steps != null) ? act.steps : 0;
+        var battery  = stats.battery.toNumber();
+        var bodyBat  = bodyBattery();
 
-        _scene = SceneEngine.compose(clock.hour, calories, calGoal);
+        // 1. Weather (top): condition + temp, lowercase. Dim accent colour.
+        drawCenter(dc, _fontTiny, _dim, Y_WEATHER, weatherHeader());
 
-        dc.setColor(Gfx.COLOR_BLACK, Gfx.COLOR_BLACK);
-        dc.clear();
+        // 2. Date: lowercase compact form.
+        drawCenter(dc, _fontTiny, _text, Y_DATE, dateString(now));
 
-        drawPokemon(dc);
+        // 3. Time: big.
+        drawCenter(dc, _fontBig, _text, Y_TIME, formatTime(clock));
 
-        drawTime(dc, clock);
-        drawDate(dc, now);
-        drawWeatherPill(dc, PILL_Y0);
-        drawCaloriesPill(dc, PILL_Y0 + PILL_DY, calories, calGoal);
-        drawProgressArc(dc, calories, calGoal);
+        // 4. Stat values — cal · steps · body battery · heart rate.
+        drawCol(dc, _fontSmall, _text, Y_VALUES, 0, calories.toString() + "kc");
+        drawCol(dc, _fontSmall, _text, Y_VALUES, 1, compactSteps(steps));
+        drawCol(dc, _fontSmall, _text, Y_VALUES, 2, pctText(bodyBat));
+        drawCol(dc, _fontSmall, _text, Y_VALUES, 3, hrText(heartRate()));
+
+        // 5. Footer: watch battery + sunrise/sunset.
+        drawCenter(dc, _fontTiny, _dim, Y_FOOTER, footerLine(battery));
     }
 
     function onPartialUpdate(dc) {
         var clock = Sys.getClockTime();
-        var hour = clock.hour;
-        var use24 = Sys.getDeviceSettings().is24Hour;
-        if (!use24) {
-            hour = hour % 12;
-            if (hour == 0) { hour = 12; }
-        }
-        var timeStr = Lang.format("$1$:$2$",
-            [hour.format("%02d"), clock.min.format("%02d")]);
-
-        dc.setClip(80, TIME_Y - 10, 280, 70);
-        dc.setColor(Gfx.COLOR_BLACK, Gfx.COLOR_BLACK);
+        var s = formatTime(clock);
+        dc.setClip(20, Y_TIME - 4, SCREEN_W - 40, 80);
+        dc.setColor(_bg, _bg);
         dc.clear();
-        dc.setColor(Gfx.COLOR_WHITE, Gfx.COLOR_TRANSPARENT);
-        dc.drawText(SCREEN_W / 2, TIME_Y, Gfx.FONT_NUMBER_MILD, timeStr,
-            Gfx.TEXT_JUSTIFY_CENTER);
+        dc.setColor(_text, Gfx.COLOR_TRANSPARENT);
+        dc.drawText(CX, Y_TIME, _fontBig, s, Gfx.TEXT_JUSTIFY_CENTER);
         dc.clearClip();
     }
 
@@ -90,129 +115,258 @@ class PokefaceView extends Ui.WatchFace {
         Ui.requestUpdate();
     }
 
-    private function drawPokemon(dc) {
-        if (_scene == null || _scene.spriteId == null) { return; }
-        var sprite = SpriteAtlas.getSprite(_scene.spriteId);
-        if (sprite == null) { return; }
+    // ─── Helpers ──────────────────────────────────────────────────────────
 
-        var w = sprite.getWidth();
-        var h = sprite.getHeight();
-
-        var bobs = [0, -2, -5, -9];
-        var dy = bobs[_scene.frameIndex];
-
-        var dstX = POKE_CX - w / 2;
-        var dstY = POKE_CY - h / 2 + dy;
-        dc.drawBitmap(dstX, dstY, sprite);
+    private function applyPalette(day) {
+        if (day) {
+            _bg = DAY_BG;
+            _text = DAY_TEXT;
+            _dim = DAY_DIM;
+        } else {
+            _bg = NIGHT_BG;
+            _text = NIGHT_TEXT;
+            _dim = NIGHT_DIM;
+        }
     }
 
-    private function drawTime(dc, clock) {
+    // True if the sun is currently up at the watch's last-known location.
+    // Falls back to a clock-only heuristic (06:00–18:00) when weather/location
+    // hasn't been synced yet.
+    private function isDayNow() {
+        var cur = null;
+        if (Weather has :getCurrentConditions) {
+            cur = Weather.getCurrentConditions();
+        }
+        var pos = (cur != null && (cur has :observationLocationPosition))
+            ? cur.observationLocationPosition : null;
+        if (pos != null) {
+            var now = Time.now();
+            var rise = Weather.getSunrise(pos, now);
+            var set  = Weather.getSunset(pos, now);
+            if (rise != null && set != null) {
+                var n = now.value();
+                return n >= rise.value() && n < set.value();
+            }
+        }
+        var hour = Sys.getClockTime().hour;
+        return hour >= 6 && hour < 18;
+    }
+
+    private function drawCenter(dc, font, color, y, text) {
+        dc.setColor(color, Gfx.COLOR_TRANSPARENT);
+        dc.drawText(CX, y, font, text, Gfx.TEXT_JUSTIFY_CENTER);
+    }
+
+    private function drawCol(dc, font, color, y, colIndex, text) {
+        dc.setColor(color, Gfx.COLOR_TRANSPARENT);
+        dc.drawText(COL_X[colIndex], y, font, text, Gfx.TEXT_JUSTIFY_CENTER);
+    }
+
+    private function formatTime(clock) {
         var hour = clock.hour;
         var use24 = Sys.getDeviceSettings().is24Hour;
         if (!use24) {
             hour = hour % 12;
             if (hour == 0) { hour = 12; }
         }
-        var s = Lang.format("$1$:$2$",
+        return Lang.format("$1$:$2$",
             [hour.format("%02d"), clock.min.format("%02d")]);
-        dc.setColor(Gfx.COLOR_WHITE, Gfx.COLOR_TRANSPARENT);
-        dc.drawText(SCREEN_W / 2, TIME_Y, Gfx.FONT_NUMBER_MILD, s,
-            Gfx.TEXT_JUSTIFY_CENTER);
     }
 
-    private function drawDate(dc, now) {
-        var s = Lang.format("$1$ $2$ $3$",
-            [now.day_of_week, now.month, now.day]);
-        dc.setColor(Gfx.COLOR_LT_GRAY, Gfx.COLOR_TRANSPARENT);
-        dc.drawText(SCREEN_W / 2, DATE_Y, Gfx.FONT_XTINY, s,
-            Gfx.TEXT_JUSTIFY_CENTER);
+    private function dateString(now) {
+        // "tue · 09 may 26 · wk19"
+        var year2 = now.year % 100;
+        var weekNum = (now.day + monthOffset(now.month)) / 7 + 1;
+        var s = Lang.format("$1$ · $2$ $3$ $4$ · wk$5$",
+            [now.day_of_week, now.day.format("%02d"), now.month,
+             year2.format("%02d"), weekNum.format("%02d")]);
+        return s.toLower();
     }
 
-    // ─── Pills ────────────────────────────────────────────────────────────
-
-    private function pillBox(dc, y) {
-        var x = PILL_R - PILL_W;
-        dc.setColor(COLOR_PILL_BG, COLOR_PILL_BG);
-        dc.fillRoundedRectangle(x, y, PILL_W, PILL_H, PILL_H / 2);
+    private function monthOffset(monthName) {
+        var m = monthName.toLower();
+        if (m.equals("jan")) { return 0;   }
+        if (m.equals("feb")) { return 31;  }
+        if (m.equals("mar")) { return 59;  }
+        if (m.equals("apr")) { return 90;  }
+        if (m.equals("may")) { return 120; }
+        if (m.equals("jun")) { return 151; }
+        if (m.equals("jul")) { return 181; }
+        if (m.equals("aug")) { return 212; }
+        if (m.equals("sep")) { return 243; }
+        if (m.equals("oct")) { return 273; }
+        if (m.equals("nov")) { return 304; }
+        if (m.equals("dec")) { return 334; }
+        return 0;
     }
 
-    private function drawPill(dc, y, iconKind, label, color) {
-        pillBox(dc, y);
-        var iconR = 9;
-        var iconCx = PILL_R - PILL_W + PILL_H / 2;
-        var iconCy = y + PILL_H / 2;
-        WeatherIcons.draw(dc, iconCx, iconCy, iconKind, iconR);
-        dc.setColor(color, Gfx.COLOR_TRANSPARENT);
-        dc.drawText(PILL_R - 12, y + 5, Gfx.FONT_XTINY, label, Gfx.TEXT_JUSTIFY_RIGHT);
-    }
-
-    private function drawWeatherPill(dc, y) {
-        if (_scene == null) { return; }
-        drawPill(dc, y, _scene.iconKind, _scene.weatherText, Gfx.COLOR_WHITE);
-    }
-
-    private function drawCaloriesPill(dc, y, calories, goal) {
-        var pct = goal > 0 ? (calories * 100) / goal : 0;
-        drawPill(dc, y, :flame, calories.toString() + "  " + pct.toString() + "%",
-            Gfx.COLOR_WHITE);
-    }
-
-    // ─── Progress arc ─────────────────────────────────────────────────────
-
-    private function drawProgressArc(dc, value, goal) {
-        var cx = SCREEN_W / 2;
-        var cy = SCREEN_W / 2;
-        var r = 168;
-        var startDeg = 215;
-        var endDeg   = 325;
-        var span = endDeg - startDeg;
-        var capR = 4;
-
-        dc.setPenWidth(6);
-        var bgColor = 0x333333;
-        dc.setColor(bgColor, Gfx.COLOR_TRANSPARENT);
-        dc.drawArc(cx, cy, r, Gfx.ARC_COUNTER_CLOCKWISE, startDeg, endDeg);
-        capAt(dc, cx, cy, r, startDeg, capR, bgColor);
-        capAt(dc, cx, cy, r, endDeg, capR, bgColor);
-
-        if (goal > 0 && value > 0) {
-            var pct = (value * 100) / goal;
-            if (pct > 100) { pct = 100; }
-            var fillEnd = startDeg + (pct * span) / 100;
-            var color = (_scene != null) ? _scene.lineColor : 0x7BCB6E;
-            dc.setColor(color, Gfx.COLOR_TRANSPARENT);
-            dc.drawArc(cx, cy, r, Gfx.ARC_COUNTER_CLOCKWISE, startDeg, fillEnd);
-            capAt(dc, cx, cy, r, startDeg, capR, color);
-            capAt(dc, cx, cy, r, fillEnd, capR, color);
+    private function compactSteps(n) {
+        if (n >= 10000) {
+            var k = n / 1000;
+            var dec = (n % 1000) / 100;
+            return k.toString() + "." + dec.toString() + "k";
+        } else if (n >= 1000) {
+            var k = n / 1000;
+            var dec = (n % 1000) / 100;
+            return k.toString() + "." + dec.toString() + "k";
         }
-
-        drawEvolutionTick(dc, cx, cy, r, startDeg + span / 3);
-        drawEvolutionTick(dc, cx, cy, r, startDeg + 2 * span / 3);
-
-        dc.setPenWidth(1);
+        return n.toString();
     }
 
-    private function capAt(dc, cx, cy, r, deg, capR, color) {
-        var rad = deg * Math.PI / 180.0;
-        dc.setColor(color, Gfx.COLOR_TRANSPARENT);
-        dc.fillCircle(
-            (cx + r * Math.cos(rad)).toNumber(),
-            (cy - r * Math.sin(rad)).toNumber(),
-            capR
-        );
+    // ─── Weather ──────────────────────────────────────────────────────────
+
+    private function weatherHeader() {
+        var cur = null;
+        if (Weather has :getCurrentConditions) {
+            cur = Weather.getCurrentConditions();
+        }
+        if (cur == null) {
+            return "—";
+        }
+        var cond = (cur.condition != null) ? condText(cur.condition) : "";
+        var temp = "";
+        if (cur.temperature != null) {
+            var f = (cur.temperature * 9 / 5) + 32;
+            temp = f.format("%d") + "f";
+        }
+        if (cond.length() > 0 && temp.length() > 0) {
+            return cond + " " + temp;
+        }
+        if (cond.length() > 0) { return cond; }
+        if (temp.length() > 0) { return temp; }
+        return "—";
     }
 
-    private function drawEvolutionTick(dc, cx, cy, r, deg) {
-        var rad = deg * Math.PI / 180.0;
-        var ux = Math.cos(rad);
-        var uy = -Math.sin(rad);
-        var inner = r - 9;
-        var outer = r + 6;
-        dc.setPenWidth(2);
-        dc.setColor(Gfx.COLOR_WHITE, Gfx.COLOR_TRANSPARENT);
-        dc.drawLine(
-            (cx + inner * ux).toNumber(), (cy + inner * uy).toNumber(),
-            (cx + outer * ux).toNumber(), (cy + outer * uy).toNumber()
-        );
+    // CONDITION_* enum → short lowercase label.
+    private function condText(c) {
+        if (c == Weather.CONDITION_CLEAR)                    { return "clear"; }
+        if (c == Weather.CONDITION_PARTLY_CLOUDY)            { return "partly cloudy"; }
+        if (c == Weather.CONDITION_MOSTLY_CLOUDY)            { return "mostly cloudy"; }
+        if (c == Weather.CONDITION_RAIN)                     { return "rain"; }
+        if (c == Weather.CONDITION_SNOW)                     { return "snow"; }
+        if (c == Weather.CONDITION_WINDY)                    { return "windy"; }
+        if (c == Weather.CONDITION_THUNDERSTORMS)            { return "storm"; }
+        if (c == Weather.CONDITION_WINTRY_MIX)               { return "wintry"; }
+        if (c == Weather.CONDITION_FOG)                      { return "fog"; }
+        if (c == Weather.CONDITION_HAZY)                     { return "hazy"; }
+        if (c == Weather.CONDITION_HAIL)                     { return "hail"; }
+        if (c == Weather.CONDITION_SCATTERED_SHOWERS)        { return "showers"; }
+        if (c == Weather.CONDITION_SCATTERED_THUNDERSTORMS)  { return "storms"; }
+        if (c == Weather.CONDITION_UNKNOWN_PRECIPITATION)    { return "precip"; }
+        if (c == Weather.CONDITION_LIGHT_RAIN)               { return "lt rain"; }
+        if (c == Weather.CONDITION_HEAVY_RAIN)               { return "hvy rain"; }
+        if (c == Weather.CONDITION_LIGHT_SNOW)               { return "lt snow"; }
+        if (c == Weather.CONDITION_HEAVY_SNOW)               { return "hvy snow"; }
+        if (c == Weather.CONDITION_LIGHT_RAIN_SNOW)          { return "rain/snow"; }
+        if (c == Weather.CONDITION_HEAVY_RAIN_SNOW)          { return "rain/snow"; }
+        if (c == Weather.CONDITION_CLOUDY)                   { return "cloudy"; }
+        if (c == Weather.CONDITION_RAIN_SNOW)                { return "rain/snow"; }
+        if (c == Weather.CONDITION_PARTLY_CLEAR)             { return "partly clear"; }
+        if (c == Weather.CONDITION_MOSTLY_CLEAR)             { return "mostly clear"; }
+        if (c == Weather.CONDITION_LIGHT_SHOWERS)            { return "lt showers"; }
+        if (c == Weather.CONDITION_SHOWERS)                  { return "showers"; }
+        if (c == Weather.CONDITION_HEAVY_SHOWERS)            { return "hvy showers"; }
+        if (c == Weather.CONDITION_CHANCE_OF_SHOWERS)        { return "chance rain"; }
+        if (c == Weather.CONDITION_CHANCE_OF_THUNDERSTORMS)  { return "chance storm"; }
+        if (c == Weather.CONDITION_MIST)                     { return "mist"; }
+        if (c == Weather.CONDITION_DUST)                     { return "dust"; }
+        if (c == Weather.CONDITION_DRIZZLE)                  { return "drizzle"; }
+        if (c == Weather.CONDITION_TORNADO)                  { return "tornado"; }
+        if (c == Weather.CONDITION_SMOKE)                    { return "smoke"; }
+        if (c == Weather.CONDITION_ICE)                      { return "ice"; }
+        if (c == Weather.CONDITION_SAND)                     { return "sand"; }
+        if (c == Weather.CONDITION_SQUALL)                   { return "squall"; }
+        if (c == Weather.CONDITION_SANDSTORM)                { return "sandstorm"; }
+        if (c == Weather.CONDITION_VOLCANIC_ASH)             { return "ash"; }
+        if (c == Weather.CONDITION_HAZE)                     { return "haze"; }
+        if (c == Weather.CONDITION_FAIR)                     { return "fair"; }
+        if (c == Weather.CONDITION_HURRICANE)                { return "hurricane"; }
+        if (c == Weather.CONDITION_TROPICAL_STORM)           { return "tropical"; }
+        if (c == Weather.CONDITION_CLOUDY_CHANCE_OF_RAIN)    { return "cloudy/rain"; }
+        if (c == Weather.CONDITION_CLOUDY_CHANCE_OF_SNOW)    { return "cloudy/snow"; }
+        if (c == Weather.CONDITION_FLURRIES)                 { return "flurries"; }
+        if (c == Weather.CONDITION_FREEZING_RAIN)            { return "frz rain"; }
+        if (c == Weather.CONDITION_SLEET)                    { return "sleet"; }
+        if (c == Weather.CONDITION_THIN_CLOUDS)              { return "thin cloud"; }
+        return "—";
+    }
+
+    // ─── Body battery ─────────────────────────────────────────────────────
+
+    private function bodyBattery() {
+        if (!(SH has :getBodyBatteryHistory)) { return null; }
+        var iter = SH.getBodyBatteryHistory({ :period => 1 });
+        if (iter == null) { return null; }
+        var sample = iter.next();
+        if (sample == null || sample.data == null) { return null; }
+        return sample.data.toNumber();
+    }
+
+    private function pctText(v) {
+        return (v == null) ? "—" : v.toString() + "%";
+    }
+
+    private function hrText(v) {
+        return (v == null) ? "—" : v.toString() + "bpm";
+    }
+
+    // ─── Heart rate ───────────────────────────────────────────────────────
+
+    private function heartRate() {
+        if (!(SH has :getHeartRateHistory)) { return null; }
+        var iter = SH.getHeartRateHistory({ :period => 1 });
+        if (iter == null) { return null; }
+        var sample = iter.next();
+        if (sample == null || sample.data == null) { return null; }
+        return sample.data.toNumber();
+    }
+
+    private function footerLine(battery) {
+        var ss = sunriseSunsetCompact();
+        var batStr = "wb " + battery.toString() + "%";
+        if (ss == null) { return batStr; }
+        return batStr + " · " + ss;
+    }
+
+    private function sunriseSunsetCompact() {
+        var cur = null;
+        if (Weather has :getCurrentConditions) {
+            cur = Weather.getCurrentConditions();
+        }
+        if (cur == null) { return null; }
+        var pos = (cur has :observationLocationPosition) ? cur.observationLocationPosition : null;
+        if (pos == null) { return null; }
+        var rise = Weather.getSunrise(pos, Time.now());
+        var set  = Weather.getSunset(pos, Time.now());
+        if (rise == null || set == null) { return null; }
+        return "sun " + ampmTime(rise) + " " + ampmTime(set);
+    }
+
+    // ─── Sunrise / sunset ────────────────────────────────────────────────
+
+    private function sunriseSunset() {
+        var cur = null;
+        if (Weather has :getCurrentConditions) {
+            cur = Weather.getCurrentConditions();
+        }
+        if (cur == null) { return "—"; }
+        var pos = (cur has :observationLocationPosition) ? cur.observationLocationPosition : null;
+        if (pos == null) { return "—"; }
+
+        var rise = Weather.getSunrise(pos, Time.now());
+        var set  = Weather.getSunset(pos, Time.now());
+        if (rise == null || set == null) { return "—"; }
+        return "sun " + ampmTime(rise) + " · " + ampmTime(set);
+    }
+
+    // Format a Time.Moment as "6:24a" / "8:42p".
+    private function ampmTime(moment) {
+        var info = Cal.info(moment, Time.FORMAT_SHORT);
+        var h = info.hour;
+        var m = info.min;
+        var suffix = "a";
+        if (h >= 12) { suffix = "p"; h = h - 12; }
+        if (h == 0) { h = 12; }
+        return h.toString() + ":" + m.format("%02d") + suffix;
     }
 }

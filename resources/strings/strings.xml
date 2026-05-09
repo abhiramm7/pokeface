@@ -1,17 +1,4 @@
 <?xml version="1.0"?>
 <strings>
-    <string id="AppName">Pokéface</string>
-
-    <string id="FavoritePokemonTitle">Favorite Pokémon</string>
-    <string id="FavoritePokemonPrompt">Pick one to override the weather-driven choice.</string>
-    <string id="FavAuto">Auto (weather)</string>
-    <string id="FavPikachu">Pikachu</string>
-    <string id="FavBulbasaur">Bulbasaur</string>
-    <string id="FavSquirtle">Squirtle</string>
-    <string id="FavCharmander">Charmander</string>
-    <string id="FavArticuno">Articuno</string>
-    <string id="FavGengar">Gengar</string>
-
-    <string id="StepGoalTitle">Step Goal</string>
-    <string id="StepGoalPrompt">Used to pace the sprite animation across the day.</string>
+    <string id="AppName">Pokeface</string>
 </strings>
