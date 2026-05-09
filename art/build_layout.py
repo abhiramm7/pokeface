@@ -82,7 +82,7 @@ ROWS = [
     # Top: live weather condition + temp.
     (48,  "tiny",  "center",       "cloudy 55f"),
     # Date — compact, lowercase.
-    (74,  "tiny",  "center",       "tue · 09 may 26 · wk19"),
+    (74,  "tiny",  "center",       "tue · 09 may 26"),
     # Time — the largest element, sits in the visual centre.
     (130, "big",   "center",       "10:42"),
     # Stats — units in-line, no labels: cal · steps · body battery · heart rate.

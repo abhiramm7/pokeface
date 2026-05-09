@@ -174,30 +174,12 @@ class MinimalView extends Ui.WatchFace {
     }
 
     private function dateString(now) {
-        // "tue · 09 may 26 · wk19"
+        // "tue · 09 may 26"
         var year2 = now.year % 100;
-        var weekNum = (now.day + monthOffset(now.month)) / 7 + 1;
-        var s = Lang.format("$1$ · $2$ $3$ $4$ · wk$5$",
+        var s = Lang.format("$1$ · $2$ $3$ $4$",
             [now.day_of_week, now.day.format("%02d"), now.month,
-             year2.format("%02d"), weekNum.format("%02d")]);
+             year2.format("%02d")]);
         return s.toLower();
-    }
-
-    private function monthOffset(monthName) {
-        var m = monthName.toLower();
-        if (m.equals("jan")) { return 0;   }
-        if (m.equals("feb")) { return 31;  }
-        if (m.equals("mar")) { return 59;  }
-        if (m.equals("apr")) { return 90;  }
-        if (m.equals("may")) { return 120; }
-        if (m.equals("jun")) { return 151; }
-        if (m.equals("jul")) { return 181; }
-        if (m.equals("aug")) { return 212; }
-        if (m.equals("sep")) { return 243; }
-        if (m.equals("oct")) { return 273; }
-        if (m.equals("nov")) { return 304; }
-        if (m.equals("dec")) { return 334; }
-        return 0;
     }
 
     private function compactSteps(n) {

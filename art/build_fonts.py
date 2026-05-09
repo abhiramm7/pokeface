@@ -29,10 +29,10 @@ GLYPHS = sorted(set(
 
 # (suffix, point size, atlas width). Sizes chosen for micro-graphics rhythm.
 SIZES = [
-    ("tiny",   11, 256),     # care-label / tech text
-    ("small",  14, 256),     # row labels / data values
-    ("med",    22, 256),     # date / secondary headlines
-    ("big",    64, 512),     # time
+    ("tiny",   13, 256),     # care-label / tech text
+    ("small",  16, 256),     # row labels / data values
+    ("med",    24, 256),     # date / secondary headlines
+    ("big",    66, 512),     # time
 ]
 
 
