@@ -42,31 +42,52 @@ def render_atlas(face: freetype.Face, px: int, atlas_w: int):
     Each char_record is a dict with the BMFont-style fields:
       id, x, y, width, height, xoffset, yoffset, xadvance.
     """
-    face.set_pixel_sizes(0, px)
-    ascender = face.size.ascender >> 6
-    line_height = (face.size.height >> 6) + 2
+    # Supersample: render every glyph at OVERSAMPLE × the target size, then
+    # Lanczos-downsample. This produces smoother, more accurately-shaped
+    # edges than freetype's own AA at the target size.
+    OVERSAMPLE = 3
+    big_px = px * OVERSAMPLE
+    face.set_pixel_sizes(0, big_px)
+
+    # Metrics in TARGET pixels (divide oversampled values back down).
+    ascender = (face.size.ascender >> 6) // OVERSAMPLE
+    line_height = ((face.size.height >> 6) // OVERSAMPLE) + 2
     base = ascender + 1
 
     pad = 2
-    # FT_LOAD_TARGET_LIGHT keeps stem positions unchanged (no horizontal
-    # snapping) but emits softer, more accurately-shaped glyphs. On AMOLED
-    # without subpixel rendering this looks far less grainy than NORMAL.
-    load_flags = freetype.FT_LOAD_RENDER | freetype.FT_LOAD_TARGET_LIGHT
+    # FT_LOAD_NO_HINTING preserves the exact outline (no stem snapping). At
+    # 3× supersampling we don't need hinting — it would only fight the
+    # downsample.
+    load_flags = freetype.FT_LOAD_RENDER | freetype.FT_LOAD_NO_HINTING
 
-    # First pass — render every glyph.
+    # First pass — render every glyph at OVERSAMPLE × size, then downsample.
     glyphs = []
     for code in GLYPHS:
         face.load_char(chr(code), load_flags)
         bmp = face.glyph.bitmap
+
+        if bmp.width > 0 and bmp.rows > 0:
+            big = Image.frombytes("L", (bmp.width, bmp.rows), bytes(bmp.buffer),
+                                   "raw", "L", bmp.pitch)
+            tw = max(1, bmp.width // OVERSAMPLE)
+            th = max(1, bmp.rows // OVERSAMPLE)
+            small = big.resize((tw, th), Image.LANCZOS)
+            buf = small.tobytes()
+            w_t, h_t = small.size
+            pitch_t = w_t
+        else:
+            buf = b""
+            w_t, h_t, pitch_t = 0, 0, 0
+
         glyphs.append({
             "id": code,
-            "w": bmp.width,
-            "h": bmp.rows,
-            "buffer": bytes(bmp.buffer),
-            "pitch": bmp.pitch,
-            "left": face.glyph.bitmap_left,
-            "top": face.glyph.bitmap_top,
-            "advance": face.glyph.advance.x >> 6,
+            "w": w_t,
+            "h": h_t,
+            "buffer": buf,
+            "pitch": pitch_t,
+            "left": face.glyph.bitmap_left // OVERSAMPLE,
+            "top": face.glyph.bitmap_top // OVERSAMPLE,
+            "advance": (face.glyph.advance.x >> 6) // OVERSAMPLE,
         })
 
     # Second pass — pack into an RGBA atlas (glyph mask in the alpha channel,

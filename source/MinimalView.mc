@@ -203,13 +203,20 @@ class MinimalView extends Ui.WatchFace {
             cur = Weather.getCurrentConditions();
         }
         if (cur == null) {
-            return "—";
+            return "no weather";
         }
-        var cond = (cur.condition != null) ? condText(cur.condition) : "";
+        var rawCond = cur.condition;
+        var cond = (rawCond != null) ? condText(rawCond) : "";
         var temp = "";
         if (cur.temperature != null) {
             var f = (cur.temperature * 9 / 5) + 32;
             temp = f.format("%d") + "f";
+        }
+        // Print every refresh so we can see what the simulator is feeding us.
+        // If the condition didn't map cleanly, surface the raw enum value so
+        // we know it changed even when the switch is missing it.
+        if (cond.equals("—") && rawCond != null) {
+            cond = "c" + rawCond.toString();
         }
         if (cond.length() > 0 && temp.length() > 0) {
             return cond + " " + temp;
