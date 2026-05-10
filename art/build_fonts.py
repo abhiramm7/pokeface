@@ -42,38 +42,35 @@ def render_atlas(face: freetype.Face, px: int, atlas_w: int):
     Each char_record is a dict with the BMFont-style fields:
       id, x, y, width, height, xoffset, yoffset, xadvance.
     """
-    # Supersample: render every glyph at OVERSAMPLE × the target size, then
-    # Lanczos-downsample. This produces smoother, more accurately-shaped
-    # edges than freetype's own AA at the target size.
-    OVERSAMPLE = 3
-    big_px = px * OVERSAMPLE
-    face.set_pixel_sizes(0, big_px)
-
-    # Metrics in TARGET pixels (divide oversampled values back down).
-    ascender = (face.size.ascender >> 6) // OVERSAMPLE
-    line_height = ((face.size.height >> 6) // OVERSAMPLE) + 2
+    # Render at the TARGET pixel size with full hinting — produces a clean
+    # 1-bit-quality glyph that Garmin's resource compiler doesn't dither.
+    face.set_pixel_sizes(0, px)
+    ascender = face.size.ascender >> 6
+    line_height = (face.size.height >> 6) + 2
     base = ascender + 1
 
     pad = 2
-    # FT_LOAD_NO_HINTING preserves the exact outline (no stem snapping). At
-    # 3× supersampling we don't need hinting — it would only fight the
-    # downsample.
-    load_flags = freetype.FT_LOAD_RENDER | freetype.FT_LOAD_NO_HINTING
+    # FT_LOAD_TARGET_MONO + FT_LOAD_RENDER produces true 1-bit bitmaps with
+    # full Truetype hinting — outlines snap to the pixel grid and edges are
+    # crisp. The Garmin renderer can't dither what isn't anti-aliased.
+    load_flags = (freetype.FT_LOAD_RENDER
+                  | freetype.FT_LOAD_TARGET_MONO
+                  | freetype.FT_LOAD_MONOCHROME)
 
-    # First pass — render every glyph at OVERSAMPLE × size, then downsample.
+    # First pass — render every glyph as 1-bit, expand to 8-bit alpha (0 or 255).
     glyphs = []
     for code in GLYPHS:
         face.load_char(chr(code), load_flags)
         bmp = face.glyph.bitmap
 
         if bmp.width > 0 and bmp.rows > 0:
-            big = Image.frombytes("L", (bmp.width, bmp.rows), bytes(bmp.buffer),
-                                   "raw", "L", bmp.pitch)
-            tw = max(1, bmp.width // OVERSAMPLE)
-            th = max(1, bmp.rows // OVERSAMPLE)
-            small = big.resize((tw, th), Image.LANCZOS)
-            buf = small.tobytes()
-            w_t, h_t = small.size
+            # bmp.buffer is 1-bit packed, MSB-first, with bmp.pitch bytes/row.
+            # Convert to a Pillow "1" image then to 8-bit alpha.
+            packed = Image.frombytes("1", (bmp.width, bmp.rows),
+                                     bytes(bmp.buffer), "raw", "1", bmp.pitch)
+            mask = packed.convert("L").point(lambda v: 255 if v >= 128 else 0)
+            buf = mask.tobytes()
+            w_t, h_t = mask.size
             pitch_t = w_t
         else:
             buf = b""
@@ -85,9 +82,9 @@ def render_atlas(face: freetype.Face, px: int, atlas_w: int):
             "h": h_t,
             "buffer": buf,
             "pitch": pitch_t,
-            "left": face.glyph.bitmap_left // OVERSAMPLE,
-            "top": face.glyph.bitmap_top // OVERSAMPLE,
-            "advance": (face.glyph.advance.x >> 6) // OVERSAMPLE,
+            "left": face.glyph.bitmap_left,
+            "top": face.glyph.bitmap_top,
+            "advance": face.glyph.advance.x >> 6,
         })
 
     # Second pass — pack into an RGBA atlas (glyph mask in the alpha channel,
