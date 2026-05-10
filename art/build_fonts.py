@@ -47,11 +47,16 @@ def render_atlas(face: freetype.Face, px: int, atlas_w: int):
     line_height = (face.size.height >> 6) + 2
     base = ascender + 1
 
-    pad = 1
-    # First pass — measure every glyph.
+    pad = 2
+    # FT_LOAD_TARGET_LIGHT keeps stem positions unchanged (no horizontal
+    # snapping) but emits softer, more accurately-shaped glyphs. On AMOLED
+    # without subpixel rendering this looks far less grainy than NORMAL.
+    load_flags = freetype.FT_LOAD_RENDER | freetype.FT_LOAD_TARGET_LIGHT
+
+    # First pass — render every glyph.
     glyphs = []
     for code in GLYPHS:
-        face.load_char(chr(code), freetype.FT_LOAD_RENDER | freetype.FT_LOAD_TARGET_NORMAL)
+        face.load_char(chr(code), load_flags)
         bmp = face.glyph.bitmap
         glyphs.append({
             "id": code,
@@ -64,8 +69,10 @@ def render_atlas(face: freetype.Face, px: int, atlas_w: int):
             "advance": face.glyph.advance.x >> 6,
         })
 
-    # Second pass — pack into the atlas, simple shelf packer.
-    img = Image.new("L", (atlas_w, atlas_w), 0)
+    # Second pass — pack into an RGBA atlas (glyph mask in the alpha channel,
+    # RGB = white). This is the canonical BMFont layout that Garmin's renderer
+    # picks up cleanly with anti-aliasing intact.
+    img = Image.new("RGBA", (atlas_w, atlas_w), (255, 255, 255, 0))
     cx = pad
     cy = pad
     row_h = 0
@@ -78,8 +85,10 @@ def render_atlas(face: freetype.Face, px: int, atlas_w: int):
             cy += row_h + pad
             row_h = 0
         if g["w"] > 0 and g["h"] > 0:
-            glyph_img = Image.frombytes("L", (g["w"], g["h"]), g["buffer"], "raw", "L", g["pitch"])
-            img.paste(glyph_img, (cx, cy))
+            mask = Image.frombytes("L", (g["w"], g["h"]), g["buffer"], "raw", "L", g["pitch"])
+            white = Image.new("RGBA", (g["w"], g["h"]), (255, 255, 255, 0))
+            white.putalpha(mask)
+            img.alpha_composite(white, (cx, cy))
         chars.append({
             "id": g["id"],
             "x": cx,
@@ -103,7 +112,7 @@ def write_fnt(path: Path, face_name: str, px: int, atlas_w: int, atlas_h: int,
     """Write a Garmin-compatible BMFont text file."""
     lines = []
     lines.append(f'info face="{face_name}" size={px} bold=0 italic=0 charset="" '
-                 'unicode=1 stretchH=100 smooth=1 aa=1 padding=0,0,0,0 spacing=1,1 outline=0')
+                 'unicode=1 stretchH=100 smooth=1 aa=1 padding=0,0,0,0 spacing=2,2 outline=0')
     lines.append(f'common lineHeight={line_height} base={base} scaleW={atlas_w} '
                  f'scaleH={atlas_h} pages=1 packed=0 alphaChnl=0 redChnl=4 greenChnl=4 blueChnl=4')
     lines.append(f'page id=0 file="{png_name}"')
